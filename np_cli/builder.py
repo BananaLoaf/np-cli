@@ -1,6 +1,7 @@
 from typing import Tuple, Any, Callable
 from argparse import ArgumentParser
 import yaml
+import re
 
 from pathlib import Path
 
@@ -25,71 +26,77 @@ class ConfigBuilder:
     def __init__(self):
         self.__schemes__ = {}
 
-        # Move schemes to __schemes__ and set all fields to None
-        for field in self.get_fields():
-            scheme = getattr(self, field)
+        # Move schemes to __schemes__ and set all arg values to None
+        for attr_name in self.get_arg_names():
+            scheme = getattr(self, attr_name)
 
-            setattr(self, field, None)
-            self.__schemes__[field] = self.set_defaults(scheme)
+            setattr(self, attr_name, None)
+            self.__schemes__[attr_name] = self.set_defaults(scheme)
 
     @staticmethod
-    def set_defaults(scheme: dict) -> dict:
+    def set_defaults(scheme: dict) -> dict:  # TODO remove
         """Set all default values for a scheme"""
         scheme.setdefault(ARGS, [])
         scheme.setdefault(KWARGS, {})
         scheme.setdefault(SAVE, True)
         return scheme
 
-    def get_fields(self) -> str:
-        """Fetches all fields"""
-        all_vars = {**vars(self.__class__)}
+    def get_arg_names(self) -> str:
+        """Fetches all args"""
+        all_attrs = {**vars(self.__class__)}
         for cls in self.__class__.__bases__:
-            if cls.__name__ == ConfigBuilder.__name__:
+            # If descended to ConfigBuilder, stop
+            if cls is ConfigBuilder:
                 break
-            else:
-                all_vars = {**all_vars, **vars(cls)}
 
-        for attr, value in all_vars.items():
-            if not (attr.startswith("__") and attr.endswith("__")) and not isinstance(value, Callable):
-                yield attr
+            # Parse all attrs
+            all_attrs = {**all_attrs, **vars(cls)}
 
-    def get_field_scheme_value(self) -> Tuple[str, dict, Any]:
-        """Fetches all available fields, schemes and values"""
-        for field in self.get_fields():
-            yield field, self.__schemes__[field], getattr(self, field)
+        for name, value in all_attrs.items():
+            if re.match("^__.*__$", name) is not None or isinstance(value, Callable):
+                continue
+            yield name
+
+    def get_arg_name_scheme_value(self) -> Tuple[str, dict, Any]:
+        """Fetches all available attr names, schemes and values"""
+        for arg_name in self.get_arg_names():
+            yield arg_name, self.__schemes__[arg_name], getattr(self, arg_name)
+
+    def to_dict(self, exclude_unsaved: bool = False) -> dict:
+        data = {}
+        for name, scheme, value in self.get_arg_name_scheme_value():
+            if not scheme[SAVE] and exclude_unsaved:
+                continue
+            data[name] = value
+        return data
+
+    def __repr__(self):
+        return self.to_dict()
 
     ################################################################
+
     def save(self, path: Path):
-        """Dump yaml representation into the file"""
-        self._cleanup()
+        """Dump config to yalm file"""
         with path.open("w") as file:
-            yaml.dump(self.to_dict(), file, indent=4)
+            yaml.dump(self.to_dict(exclude_unsaved=True), file, indent=4)
 
     @classmethod
     def load(cls, path: Path):
         """Load config from yaml file"""
         self = cls()
-        self._cleanup()
 
         with path.open("r") as file:
             data = yaml.load(file)
 
-        for field in self.get_fields():
+        for name, scheme, value in self.get_arg_name_scheme_value():
             try:
-                setattr(self, field, data[field])
+                if scheme[SAVE]:
+                    setattr(self, name, data[name])
+
             except KeyError:
-                raise KeyError(f"Config is missing required key '{field}'")
+                raise KeyError(f"Config is missing required key '{name}'")
 
         return self
-
-    def to_dict(self) -> dict:
-        data = {}
-        for field, scheme, value in self.get_field_scheme_value():
-            data[field] = value
-        return data
-
-    def __repr__(self):
-        return self.to_dict()
 
     ################################################################
     @classmethod
@@ -102,10 +109,10 @@ class ConfigBuilder:
         parser = ArgumentParser(description=description)
         groups = {}
 
-        for field, scheme, value in self.get_field_scheme_value():
+        for name, scheme, value in self.get_arg_name_scheme_value():
             # Set constants and skip
             if CONSTANT in scheme.keys():
-                setattr(self, field, scheme[CONSTANT])
+                setattr(self, name, scheme[CONSTANT])
                 continue
 
             # Create group and set as target for new argument
@@ -120,7 +127,7 @@ class ConfigBuilder:
 
             try:
                 if scheme[ARGS][0].startswith("-"):
-                    scheme[KWARGS]["dest"] = field
+                    scheme[KWARGS]["dest"] = name
             except IndexError:
                 pass
             target_parser.add_argument(*scheme[ARGS], **scheme[KWARGS])
@@ -128,18 +135,7 @@ class ConfigBuilder:
         ################################################################
         # Parse
         args = parser.parse_args()
-        for field, value in vars(args).items():
-            setattr(self, field, value)
+        for name, value in vars(args).items():
+            setattr(self, name, value)
 
         return self
-
-    def _cleanup(self):
-        to_remove = []
-        for field, scheme, value in self.get_field_scheme_value():
-            if not scheme[SAVE]:
-                to_remove.append(field)
-
-        for field in to_remove:
-            delattr(self, field)
-            delattr(self.__class__, field)
-            del self.__schemes__[field]
