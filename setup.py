@@ -14,5 +14,5 @@ with open("README.md", "r") as file:
 # https://docs.python.org/2/distutils/setupscript.html
 setup(name=PACKAGE_NAME,
       version=__version__,
-      install_requires=[],
+      install_requires=["PyYAML", "pathlib"],
       packages=find_packages())

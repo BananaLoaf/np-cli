@@ -8,3 +8,5 @@ np_cli/__pycache__/
 dist/
 
 build/
+
+.DS_Store
