@@ -1,3 +1,3 @@
-# setup-template
+# NP-CLI
 
-This line is a description
+*No Pain Command Line Interface*
