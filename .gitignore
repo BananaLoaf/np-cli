@@ -1,10 +1,12 @@
 
 \.idea/
 
-template\.egg-info/
+np_cli\.egg-info/
 
-template/__pycache__/
+np_cli/__pycache__/
 
 dist/
 
 build/
+
+.DS_Store
